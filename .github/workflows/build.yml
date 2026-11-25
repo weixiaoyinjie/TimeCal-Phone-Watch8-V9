@@ -1,0 +1,64 @@
+name: Build TimeCal V9 Phone and Wear
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Locate and extract V9 project
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive=$(find "$GITHUB_WORKSPACE" -type f -name 'TimeCal_V9_Source.zip' -print -quit)
+          if [[ -n "$archive" ]]; then
+            mkdir -p "$RUNNER_TEMP/timecal-v9"
+            unzip -tq "$archive"
+            unzip -oq "$archive" -d "$RUNNER_TEMP/timecal-v9"
+            project=$(find "$RUNNER_TEMP/timecal-v9" -type f -name settings.gradle -print -quit)
+          elif [[ -f "$GITHUB_WORKSPACE/settings.gradle" ]]; then
+            project="$GITHUB_WORKSPACE/settings.gradle"
+          else
+            echo '::error::Upload TimeCal_V9_Source.zip to the repository root.'
+            exit 1
+          fi
+          if [[ -z "$project" ]]; then
+            echo '::error::settings.gradle not found inside the archive.'
+            exit 1
+          fi
+          dir=$(dirname "$project")
+          test -f "$dir/app/build.gradle"
+          test -f "$dir/wear/build.gradle"
+          test -d "$dir/shared/src/main/java"
+          echo "PROJECT_DIR=$dir" >> "$GITHUB_ENV"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install required Android SDK packages
+        shell: bash
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'platform-tools'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Build phone and watch APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          gradle --version
+          gradle --no-daemon --console=plain --stacktrace :app:assembleDebug :wear:assembleDebug
+          mkdir -p "$GITHUB_WORKSPACE/apks"
+          cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/apks/TimeCal_PHONE.apk"
+          cp wear/build/outputs/apk/debug/wear-debug.apk "$GITHUB_WORKSPACE/apks/TimeCal_WEAR.apk"
+          ls -lh "$GITHUB_WORKSPACE/apks/"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TimeCal-V9-Phone-Wear
+          path: apks/*.apk
+          if-no-files-found: error
