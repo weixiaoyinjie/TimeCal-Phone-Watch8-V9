@@ -39,10 +39,28 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
-      - name: Install required Android SDK packages
+      - name: Check preinstalled Android SDK
         shell: bash
-        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'platform-tools'
+        run: |
+          set -euo pipefail
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_HOME=$sdk" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$sdk" >> "$GITHUB_ENV"
+          echo "Using Android SDK: $sdk"
+          missing=()
+          [[ -f "$sdk/platforms/android-35/android.jar" ]] || missing+=('platforms;android-35')
+          [[ -x "$sdk/build-tools/34.0.0/aapt2" ]] || missing+=('build-tools;34.0.0')
+          if (( ${#missing[@]} > 0 )); then
+            manager="$sdk/cmdline-tools/latest/bin/sdkmanager"
+            test -x "$manager"
+            printf 'Missing SDK packages: %s\n' "${missing[@]}"
+            "$manager" --sdk_root="$sdk" --licenses < <(yes)
+            "$manager" --sdk_root="$sdk" "${missing[@]}" < <(yes)
+          fi
+          test -f "$sdk/platforms/android-35/android.jar"
+          test -x "$sdk/build-tools/34.0.0/aapt2"
+          echo 'Android SDK ready.'
+          printf 'sdk.dir=%s\n' "$sdk" > "$PROJECT_DIR/local.properties"
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
